@@ -1,0 +1,235 @@
+# Retweet-Data-Collection-and-Analytics
+########################################################################################################################
+# Collects retweet data, visualizes the retweet network, and conducts topic modeling
+
+# For more information on constructing the retweeting network, please see http://rischanlab.github.io/Retweet_Graph.html 
+########################################################################################################################
+
+
+# Install and Load needed packages
+install.packages('twitteR')
+install.packages('stringr')
+library(twitteR)
+library(stringr)
+
+# API Keys and tokens - Insert within double quotes your own keys and tokens
+api_key <- "R2BL99rxZpBd2hWBe91yQJqPq"
+api_secret <- "UVcEhYvvTPsWlAVdmthBNx7Tbb4y0m6Ng5QTnJlawoV4E8QVBz"
+access_token <- "1395591278822400000-pFn1xJqAXzb3LfGcmm6SzH3mSSxIaD"
+access_token_secret <- "88o3qfNzGqxdF6BPl2kUPONUsfXJLXZLoQCuAP6QIPQeX"
+
+# Set up Twitter authorization with your keys and access tokens
+setup_twitter_oauth(api_key,api_secret,access_token,access_token_secret)
+
+# Set working directory to where authenticare.R file is located
+setwd("C:/Users/ahsan/Documents/R")
+
+# Collect tweets on specific hashtags or keywords. 
+# In this case, I collect a max of 1000 tweets with 'UTRGV' in their texts to keep the graph size small and easy to view
+CollectedTweets = searchTwitter("TESLA", n=1000, lang="en")
+
+# Disply first ten tweets
+# Notice retweets has  "RT" in the text followed by the user retweeted with "@"
+head(CollectedTweets,10)
+
+# Get tweet texts
+CollectedTweets_txt = sapply(CollectedTweets, function(x) x$getText())
+
+# Disply only the texts of first ten tweets
+head(CollectedTweets_txt,10)
+
+# Find retweets using the grep function
+# Pattern/text to be matched: "RT" or "via"
+# "(?:)" are things that should exist but we do not capture them 
+# "\\b\\W*@\\w+)+" allows us to make sure there is'@' plus a username after "RT" or "via"
+grep("(RT|via)((?:\\b\\W*@\\w+)+)", 
+     CollectedTweets, # data to be processed
+     ignore.case=TRUE, # ignore case of the text
+     value=TRUE) # returns a vector containing the matching elements
+
+
+# Save results to rt_patterns
+rt_patterns = grep("(RT|via)((?:\\b\\W*@\\w+)+)", 
+                   CollectedTweets_txt, ignore.case=TRUE)
+
+# Identify first ten retweets
+head(rt_patterns,10)
+
+# Show texts of first ten retweets
+head(CollectedTweets_txt[rt_patterns],10)
+
+# Create two lists to store usernames and retweets
+who_retweet = as.list(1:length(rt_patterns))
+who_post = as.list(1:length(rt_patterns))
+
+
+for (i in 1:length(rt_patterns)) # Loop length is the number of retweets in rt_patterns
+{ 
+  # get tweet with retweet entity
+  twit = CollectedTweets[[rt_patterns[i]]]
+  # get retweet source 
+  poster = str_extract_all(twit$getText(),
+                           "(RT|via)((?:\\b\\W*@\\w+)+)") 
+  # use unlist to convert poster to a single vector and remove ':'
+  poster = gsub(":", "", unlist(poster)) 
+  # name of retweeted user??? gsub function returns username after 'RT @' or 'via @'
+  who_post[[i]] = gsub("(RT @|via @)", "", poster, ignore.case=TRUE) 
+  # name of retweeting user
+  who_retweet[[i]] = rep(twit$getScreenName(), length(poster)) 
+}
+
+# disply first 10 users for each list
+head(who_post, 10)
+head(who_retweet, 10)
+
+# Convert the two lists to two vectors with the results
+who_post = unlist(who_post)
+who_retweet = unlist(who_retweet)
+
+# disply first 10 users for each vector
+head(who_post, 10)
+head(who_retweet, 10)
+
+# Combine the two vectors so each post author and retweeted user are paired together
+retweeter_poster = cbind(who_retweet, who_post)
+
+# Disply first 10 pairs
+head(retweeter_poster, 10)
+
+
+
+######################################################################################################################
+# PLOTTING THE RETWEETING NETWORKS
+######################################################################################################################
+
+install.packages('igraph')
+library(igraph)
+
+# Create retweet network graph with each user pair as an edge of the graph
+rt_graph = graph.edgelist(retweeter_poster, directed = TRUE)
+
+# remove self ties (i.e., people who retweeted themselves)
+rt_graph = simplify(rt_graph)
+
+# Get the labels' name attribute of the vertices/nodes as the vertex labels
+ver_labs = get.vertex.attribute(rt_graph, "name", index=V(rt_graph))
+
+# Disply first 10 users
+head(ver_labs, 10)
+
+# Sets the layout of the graph to the Fruchterman & Reingold layout
+glay = layout.fruchterman.reingold(rt_graph)
+
+# Set graph background to white and margins of graph
+par(bg="white", mar=c(1,1,1,1))  
+
+# Plot the graph
+plot(rt_graph, layout=glay,
+     vertex.color='white', # Set vertex/node fill color to white
+     vertex.size=3, # Vertex size
+     frame.color='black', # Vertex border color
+     vertex.label=ver_labs, # Vertex label
+     vertex.label.family="sans", # Vertex label font
+     vertex.shape="sphere", # Vertex shape
+     vertex.label.color='blue', # Vertex label color
+     vertex.label.cex=0.5, # Vertex font size
+     edge.arrow.size=0.2, # Edge arrow size
+     edge.arrow.width=0.4, # Edge arrow width
+     edge.width=2, # Edge width
+     edge.color=hsv(h=.95, s=1, v=.7, alpha=0.5)) # Edge color
+
+
+# add title, font size and color
+title("\nTweets with 'TSLA':  Who retweets whom",
+      cex.main=1, col.main="black") 
+
+
+# Collating metrics for further analysis
+RTMetrics=data.frame(cbind(degree(rt_graph, mode=("in"))))   # in-degree
+RTMetrics=cbind(RTMetrics, data.frame(cbind(degree(rt_graph, mode=("out")))))   # out-degree
+RTMetrics=cbind(RTMetrics, data.frame(cbind(betweenness(rt_graph))))  # betweenness
+RTMetrics=cbind(RTMetrics, data.frame(cbind(closeness(rt_graph))))    # closeness
+RTMetrics=cbind(RTMetrics, data.frame(cbind(evcent(rt_graph)$vector)))  # eigenvector
+colnames(RTMetrics)=c('In-Degree', 'Out-Degree','Betweenness', 'Closeness', 'Eigenvector')  # add column headings
+
+# View results
+View(RTMetrics)
+
+# Save results to a csv file
+write.csv(RTMetrics, 'RTMetrics.csv')
+
+# Plot graph with vertex size proportional to Eigenvector centrality
+plot(rt_graph, layout=glay,
+     vertex.color='white', # Set vertex/node fill color to white
+     vertex.size=evcent(rt_graph)$vector*5^1.5, # Vertex size proportional to Eigenvector centrality
+     frame.color='black', # Vertex border color
+     vertex.label=ver_labs, # Vertex label
+     vertex.label.family="sans", # Vertex label font
+     vertex.shape="sphere", # Vertex shape
+     vertex.label.color='blue', # Vertex label color
+     vertex.label.cex=0.5, # Vertex font size
+     edge.arrow.size=0.2, # Edge arrow size
+     edge.arrow.width=0.4, # Edge arrow width
+     edge.width=2, # Edge width
+     edge.color=hsv(h=.95, s=1, v=.7, alpha=0.5)) # Edge color
+
+title("\nTweets with 'TESLA':  Who retweets whom, Vertex size proportional to Eigenvector centrality",
+      cex.main=1, col.main="black") 
+
+# Identify communities
+RT_community=walktrap.community(rt_graph)
+
+# Plot identified communities in network
+plot(RT_community, rt_graph, vertex.size=3, vertex.label.cex=0.5, 
+     vertex.label=NA, edge.arrow.size=0.2, edge.curved=TRUE, layout=layout.fruchterman.reingold)
+title("\nTweets with 'UTRGV':  Who retweets whom with communities",
+      cex.main=1, col.main="black") 
+
+######################################################################################################################
+# TOPIC MODELING VIA LATENT DIRICHLET ALLOCATION
+######################################################################################################################
+
+install.packages('tm')
+library(tm)
+
+install.packages('topicmodels')
+library(topicmodels)
+
+RTCorp=Corpus(VectorSource(CollectedTweets_txt))
+
+# Text preprocessing
+RTCorp=tm_map(RTCorp,content_transformer(tolower))
+
+#other pre-processing tasks
+RTCorp=tm_map(RTCorp, removeWords, stopwords('english')) # Remove stop words
+RTCorp=tm_map(RTCorp, removePunctuation) # Remove punctuation marks 
+RTCorp=tm_map(RTCorp, removeNumbers) # Remove numbers
+RTCorp=tm_map(RTCorp, stripWhitespace) # Remove whitespace
+
+# Keep only terms that appear in at least 2.5% of the tweets
+RTTDM=removeSparseTerms(TermDocumentMatrix(RTCorp),.975)
+
+#get a complete DTM, otherwise will have to delete documents with
+RTDTM=DocumentTermMatrix(RTCorp)
+
+# run LDA; Gibbs alternative is VEM; k is the number of topics we think we have
+RTTopics=LDA(RTDTM, method='Gibbs', k=7, control=list(seed = 77))
+terms(RTTopics,10)
+#output the terms and their betas - densities within topics - for each topic
+RTTerms=data.frame(row.names(t(as.matrix(RTDTM))),t(as.matrix(RTTopics@beta))) 
+colnames(RTTerms)=c('Term', 'Topic1', 'Topic2', 'Topic3', 'Topic4', 'Topic5', 'Topic6', 'Topic7')
+
+#re-order data frame to highlight top 10 terms for 1st topic
+RTTerms=RTTerms[order(RTTerms$Topic1, decreasing = 'T'),]
+RTTerms[1:20,] # reports natural log of probabilities, hence negative
+
+topics(RTTopics)				#determine which topic dominates each document
+
+#add the topics to original RTPosts data frame
+RTPosts=data.frame(CollectedTweets_txt,Topic=topics(RTTopics))
+
+#add the density of each topic within each document
+#to the data frame
+RTPosts=data.frame(RTPosts,RTTopics@gamma) # gamma is the document densities over different topics
+
+View(RTPosts)
